@@ -166,7 +166,7 @@ How the patches work is in [docs/TECHNICAL.md](docs/TECHNICAL.md).
   into the same format as the other patches so they work in all three install
   methods.
 - **Bero** — *SDHC Extension*, the fix this SDHC patch follows (the same fix the
-  [ACCF-Patch](https://github.com/GC-Patches/ACCF-Patch) carries for Animal
+  [ACCF-Patch](https://github.com/Wii-Patches/ACCF-Patch) carries for Animal
   Crossing: City Folk).
 - The Gecko / WiiRD community for the code format and code handler.
 
