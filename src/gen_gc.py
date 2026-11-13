@@ -15,13 +15,14 @@ BUTTONS = (0x80045AF8, 5, 6)                  # read_kpad_button merge point
 IR_CALLS = ((0x80047D94, 6, 4), (0x80047E38, 5, 4), (0x80047EE8, 5, 4))   # bl IR routine, one per loop
 USA_DOL = None
 
+SI_POLL_ON = (0x80057FB8, 2, 8)              # SIEnablePolling: `lis r3,Si@ha; addi r3,r3,Si@l` (si state)
 HBM_FN = 0x800A4294                          # "is the HOME Menu up?" (same function the Classic Controller pointer asks)
 
 DEAD = 10
 KMUL = 205
 
-PAD_NOTE = ('GameCube pad: needs the SI hardware to be polling the port (the game does this for '
-            'a pad that is plugged in when it boots)')
+PAD_NOTE = ('GameCube pad: the game probes the ports at boot; the button hook keeps a found '
+            'pad polled every frame')
 
 
 def _read(name):
@@ -69,8 +70,15 @@ def build(region, dol):
     if not kbase:
         raise SystemExit('%s: could not find the KPAD struct base' % region)
 
+    # si's state block: +4 the SIPOLL shadow, +0x18 the per-port cached device types
+    sp = find_unique(usa_dol, dol, *SI_POLL_ON) if region != 'REXE01' else SI_POLL_ON[0]
+    hi, lo = (struct.unpack('>I', dol.read(sp + 4 * k, 4))[0] for k in (0, 1))
+    if hi >> 16 != 0x3C60 or lo >> 16 != 0x3863:
+        raise SystemExit('%s: SIEnablePolling does not load the si state at 0x%08X' % (region, sp))
+    sibase = (((hi & 0xFFFF) << 16) + ((lo & 0xFFFF) - 0x10000 if lo & 0x8000 else lo & 0xFFFF)) & 0xFFFFFFFF
+
     hbm_fn = find_unique(usa_dol, dol, HBM_FN, 0, 8) if region != 'REXE01' else HBM_FN
-    syms = {'KBASE': kbase, 'IR_FUNC': ir_func, 'HBM_FN': hbm_fn}
+    syms = {'KBASE': kbase, 'SIBASE': sibase, 'IR_FUNC': ir_func, 'HBM_FN': hbm_fn}
     consts = {'DEAD': DEAD, 'KMUL': KMUL}
     ops, cur = [], GC_BASE
 

@@ -55,29 +55,46 @@ plugged in, enables the SI hardware's auto-polling. The game never calls
 `PADRead`, so the pad's state just sits in the SI result registers,
 `SIC0INBUFH` at `0xCD006404` (+12 per port): bit 31 error, bit 23 always set in a
 real pad's answer, bits 29-16 the PAD button word, then the two stick bytes.
-Nothing else is needed to read it.
+
+Dolphin refreshes those registers whether or not the port is polled, so reading
+them there proves nothing about a console. On a real Wii the first build saw no
+buttons while still replacing the remote's tilt with a fixed stick value: the
+registers most likely held an answer that was no longer being refreshed (not yet
+confirmed on a console). So the button hook,
+which runs once per channel per frame, now keeps the poll alive the way the SDK's
+`SIEnablePolling` sets it up, for every port that `si`'s type cache marks as a
+standard pad: the poll command (`0x00400300`) into `SICnOUTBUF`, `SISR` with WR
+(bit 31) plus that port's error nibble, the port's enable bit in `SIPOLL` and in
+`si`'s shadow of it (`Si.poll`, which the VI retrace writes back to `SIPOLL`).
+The `si` state block (`Si` at `0x80311630` USA: `+4` the SIPOLL shadow, `+0x18`
+the four cached types) is read out of `SIEnablePolling` per release.
+
+A pad answer is used only if the port's cached type is a standard pad, bit 31 is
+clear, bit 23 is set and the stick bytes are not zero.
 
 Two hooks use that:
 
 - **`read_kpad_button` merge point (`0x80045AF8`)** — every extension type
   reaches `lwz r0,0(r3)` (r3 = the channel's KPAD struct, base `0x8037C808`, stride
-  `0x400`). The hook maps the pad's buttons onto the Wii Remote bits the game
-  expects with the remote held sideways (the same mapping the Classic Controller
-  patch uses) and ORs them in before the edge detection runs.
+  `0x400`). After the polling upkeep, the hook maps the pad's buttons onto the Wii
+  Remote bits the game expects with the remote held sideways (the same mapping the
+  Classic Controller patch uses) and ORs them in before the edge detection runs.
 - **The KPAD sample loop's `bl 0x80047284`** (three call sites, one per extension
   type; it runs after the accelerometer filter for every sample) — runs the
-  original call, then, if a pad answers, writes the stick into the accelerometer
-  fields the same way the Classic Controller patch does (`acc.x ← −stickY`,
-  `acc.z ← −stickX`, normalised to ±1 with a dead zone) and drives the HOME
-  Menu pointer from it. With a pad connected the stick overrides the remote's tilt.
+  original call, then, if a pad answers *and its stick is outside the dead zone*,
+  writes the stick into the accelerometer fields the same way the Classic
+  Controller patch does (`acc.x ← −stickY`, `acc.z ← −stickX`, normalised to ±1).
+  With the stick at rest the remote's own tilt is left alone, so a remote and a
+  pad can share a player. While the HOME Menu is open the stick also moves the
+  pointer.
 
 Port N feeds KPAD channel N (SI result registers are 12 bytes apart, KPAD structs
 `0x400`). The game polls all four channels every frame but is a two-player game
 (`Pause:MISSING_CTRL_0/1` are the only controller-missing screens); in Dolphin, pad 1
 and pad 2 drove channels 0 and 1 independently, and channels 2-3 stayed idle.
 
-The pad is detected purely by the error/valid bits of its own result word, so
-nothing is stored anywhere.
+Nothing is stored anywhere: the pad is judged from `si`'s type cache and its own
+result word every time.
 
 ## SDHC
 

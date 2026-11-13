@@ -5,6 +5,13 @@
 # same way the Classic Controller patch does: acc.x <- -stickY, acc.z <- -stickX,
 # normalised to [-1, 1] with a dead zone.  A GameCube stick reads 128 +/- ~100.
 #
+# The tilt is only replaced while the stick is pushed past the dead zone, so a
+# Wii Remote keeps steering by tilt whenever the pad's stick rests (or the pad's
+# answer is stale).  The pad must pass the same checks as in gc_buttons.s:
+# a standard pad in si's type cache, no error, the always-set bit 23, and
+# non-zero stick bytes.  The stick drives the pointer only while the HOME Menu
+# is open, so the remote's own pointer data is left alone in the game.
+#
 # Self-contained: it carries its own helper routines and calls game code
 # through absolute addresses, so it works wherever the code handler (or the
 # patcher) puts it.
@@ -21,6 +28,17 @@
     srwi    5, 4, 10
     cmplwi  5, 3
     bgt     out
+    lis     6, SIBASE@ha
+    addi    6, 6, SIBASE@l
+    slwi    7, 5, 2
+    add     7, 7, 6
+    lwz     7, 0x18(7)                  # si's cached device type of this port
+    andi.   0, 7, 0x80
+    bne     out                         # probe pending
+    rlwinm  0, 7, 0, 3, 4
+    lis     7, 0x0800
+    cmpw    0, 7
+    bne     out                         # not a standard GameCube pad
     mulli   5, 5, 12
     lis     6, 0xCD00
     add     6, 6, 5
@@ -28,6 +46,8 @@
     cmpwi   8, 0
     blt     out
     andis.  9, 8, 0x0080
+    beq     out
+    andi.   9, 8, 0xFCFC
     beq     out
     rlwinm  9, 8, 24, 24, 31            # stick X (u8)
     addi    9, 9, -128
@@ -37,17 +57,26 @@
 
     mr      4, 9
     bl      axis                        # r4 = -(X) in 1/256ths
-    bl      tofloat                     # f0
-    stfs    0, 0x14(3)                  # acc.z
-
+    stw     4, 0x10(1)
     lwz     4, 0x0c(1)
     bl      axis
+    stw     4, 0x0c(1)
+    lwz     0, 0x10(1)
+    or.     0, 0, 4
+    stw     0, 0x14(1)                  # 0 = stick at rest
+    beq     ptr                         # stick at rest: keep the remote's tilt
+
+    lwz     4, 0x10(1)
+    bl      tofloat                     # f0
+    stfs    0, 0x14(3)                  # acc.z
+    lwz     4, 0x0c(1)
     bl      tofloat
     stfs    0, 0x0c(3)                  # acc.x
 
     # Pointer for the HOME Menu: with no real IR pointer, steer one with the stick
     # (the Classic Controller patch does the same).  The remote's IR routine just
     # cleared dpd_valid, so this runs fresh every sample.
+ptr:
     lwz     0, 0x84(3)
     cmpwi   0, 0
     bne     out
@@ -57,21 +86,23 @@
     li      0, 0
     stw     0, 0x20(3)
     stw     0, 0x24(3)
-1:  li      6, 2
-    stb     6, 0x84(3)                  # pointer valid
-    lis     12, HBM_FN@ha
+1:  lis     12, HBM_FN@ha
     addi    12, 12, HBM_FN@l
     mtctr   12
     bctrl                               # 1 while the HOME Menu is up
     cmpwi   3, 1
     lwz     3, 0x08(1)
-    lis     0, 0x3faa
-    ori     0, 0, 0xaaab
+    bne     out                         # in the game: leave the pointer alone
+    li      6, 2
+    stb     6, 0x84(3)                  # pointer valid
+    lwz     0, 0x14(1)
+    cmpwi   0, 0
+    beq     out                         # stick at rest: the pointer stays put
+    lis     0, 0x3fe3
+    ori     0, 0, 0x8e39
     stw     0, 0x30(1)
-    lfs     2, 0x30(1)                  # 1.3333
-    bne     2f
-    fmuls   2, 2, 2                     # slower in the menu
-2:  lis     0, 0x3c75
+    lfs     2, 0x30(1)                  # 1.7778 (= 1.3333 squared)
+    lis     0, 0x3c75
     ori     0, 0, 0xc28f
     stw     0, 0x34(1)
     lfs     3, 0x34(1)                  # 0.015 per sample

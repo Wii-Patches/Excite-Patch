@@ -33,8 +33,8 @@ Controller patch on the USA release. **Not yet tested on a real Wii** — see
   at once). The game only has two local players — its controller-missing screens
   stop at player 2 — so ports 3 and 4 have nothing to drive
 - plug the GameCube pad in **before** starting the game; hot-plugging is not handled
-- the patched pad replaces the remote's tilt only while a GameCube pad answers —
-  unplug it to steer with the remote again
+- the GameCube stick replaces the remote's tilt only while it is pushed; with
+  the stick at rest the remote steers by tilt as usual
 - SDHC needs an IOS that understands SDHC cards: the patcher can set the disc's
   IOS to 58 for you, or set it in your USB loader (see below)
 
